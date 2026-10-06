@@ -1,15 +1,20 @@
 import { useState, useEffect } from 'react';
-import { View, Text, TextInput, ScrollView, StyleSheet, FlatList, TouchableOpacity } from "react-native";
+import { View, Text, TextInput, ScrollView, StyleSheet, FlatList, TouchableOpacity, Modal, Alert } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { collection, getDocs, query, where } from "firebase/firestore";
+import { collection, getDocs, query, where, doc, deleteDoc } from "firebase/firestore";
 import { db } from "../firebase/config";
 import Categoria from "../components/Categoria";
 import Producto from "../components/Producto";
+import FormularioProducto from "../components/FormularioProducto"; // <-- Importamos el Formulario
 
 const Catalogo = () => {
     const [ categorias, setCategorias ] = useState( [] );
     const [ productos, setProductos ] = useState( [] );
     const [ busqueda, setBusqueda ] = useState( "" );
+    
+    // Estados para el CRUD Operacional
+    const [ modalVisible, setModalVisible ] = useState( false );
+    const [ productoAEditar, setProductoAEditar ] = useState( null );
 
     useEffect( () => {
         obtenerCategorias();
@@ -17,42 +22,37 @@ const Catalogo = () => {
     }, [] );
 
     const obtenerCategorias = async () => {
-        try
-        {
+        try {
             const querySnapshot = await getDocs( collection( db, "Categorias" ) );
             const datos = [];
             querySnapshot.forEach( ( doc ) => {
                 datos.push( { id: doc.id, ...doc.data() } );
             } );
             setCategorias( datos );
-        } catch ( error )
-        {
+        } catch ( error ) {
             console.error( "Error obteniendo categorías: ", error );
         }
     };
 
     const obtenerProductos = async () => {
-        try
-        {
+        try {
             const querySnapshot = await getDocs( collection( db, "Productos" ) );
             const datos = [];
             querySnapshot.forEach( ( doc ) => {
                 datos.push( { id: doc.id, ...doc.data() } );
             } );
             setProductos( datos );
-        } catch ( error )
-        {
+        } catch ( error ) {
             console.error( "Error obteniendo productos: ", error );
         }
     };
 
     const obtenerProductosPorCategoria = async ( categoriaId ) => {
         setBusqueda("");
-        try
-        {
+        try {
             const consulta = query(
                 collection( db, "Productos" ),
-                where( "idCategoria", "==", categoriaId )
+                where( "categoriaId", "==", categoriaId )
             );
             const consultaSnapshot = await getDocs( consulta );
             const datos = [];
@@ -60,9 +60,39 @@ const Catalogo = () => {
                 datos.push( { id: documento.id, ...documento.data() } );
             } );
             setProductos( datos );
-        } catch ( error )
-        {
+        } catch ( error ) {
             console.error( "Error obteniendo productos por categoría:", error );
+        }
+    };
+
+    // Funciones Handler del CRUD
+    const abrirCrear = () => {
+        setProductoAEditar( null );
+        setModalVisible( true );
+    };
+
+    const abrirEditar = ( producto ) => {
+        setProductoAEditar( producto );
+        setModalVisible( true );
+    };
+
+    const confirmarEliminar = ( id ) => {
+        Alert.alert(
+            "Eliminar producto",
+            "¿Estás seguro de que deseas eliminar este producto?",
+            [
+                { text: "Cancelar", style: "cancel" },
+                { text: "Eliminar", style: "destructive", onPress: () => eliminarProducto( id ) }
+            ]
+        );
+    };
+
+    const eliminarProducto = async ( id ) => {
+        try {
+            await deleteDoc( doc( db, "Productos", id ) );
+            obtenerProductos(); // Recargamos lista en verde
+        } catch ( error ) {
+            console.error( "Error al eliminar producto:", error );
         }
     };
 
@@ -71,8 +101,8 @@ const Catalogo = () => {
     );
 
     const seleccionarTodos = () => {
-        setBusqueda( "" );         // Limpia el input de búsqueda
-        obtenerProductos();      // Vuelve a traer todos los productos
+        setBusqueda( "" );
+        obtenerProductos();
     };
 
     return (
@@ -84,46 +114,55 @@ const Catalogo = () => {
                 showsVerticalScrollIndicator={ false }
                 columnWrapperStyle={ styles.filaProductos }
                 renderItem={ ( { item } ) => (
-                    <Producto
-                        nombre={ item.nombre }
-                        precio={ item.precio }
-                        tiempo={ item.tiempo }
-                        color={ item.color }
-                        imagen={ item.Imagen }
-                    />
+                    <View style={ styles.tarjetaContenedor }>
+                        <Producto
+                            nombre={ item.nombre }
+                            precio={ item.precio }
+                            tiempo={ item.tiempo }
+                            color={ item.color }
+                            imagen={ item.Imagen }
+                        />
+                        {/* Acciones Rápidas CRUD en cada Tarjeta */}
+                        <View style={ styles.accionesCard }>
+                            <TouchableOpacity onPress={() => abrirEditar( item )}>
+                                <Ionicons name="pencil-outline" size={18} color="#7C7CFF" />
+                            </TouchableOpacity>
+                            <TouchableOpacity onPress={() => confirmarEliminar( item.id )}>
+                                <Ionicons name="trash-outline" size={18} color="#FF3B30" />
+                            </TouchableOpacity>
+                        </View>
+                    </View>
                 ) }
                 ListHeaderComponent={
                     <View>
-                        {/* Buscador superior */ }
-                        <View style={ styles.buscador }>
-                            <Ionicons
-                                name="search-outline"
-                                size={ 18 }
-                                color="#7C7CFF"
-                            />
-                            <TextInput
-                                placeholder="Buscar producto"
-                                placeholderTextColor="#B5B5D5"
-                                style={ styles.input }
-                                value={ busqueda }
-                                onChangeText={ setBusqueda }
-                            />
+                        {/* Buscador superior y Botón + */}
+                        <View style={ styles.headerAcciones }>
+                            <View style={ styles.buscador }>
+                                <Ionicons name="search-outline" size={ 18 } color="#7C7CFF" />
+                                <TextInput
+                                    placeholder="Buscar producto"
+                                    placeholderTextColor="#B5B5D5"
+                                    style={ styles.input }
+                                    value={ busqueda }
+                                    onChangeText={ setBusqueda }
+                                />
+                            </View>
+                            <TouchableOpacity style={ styles.botonAgregar } onPress={ abrirCrear }>
+                                <Ionicons name="add" size={ 24 } color="#FFF" />
+                            </TouchableOpacity>
                         </View>
 
-                        {/* Categorías horizontales */ }
+                        {/* Categorías horizontales */}
                         <ScrollView
                             horizontal
                             showsHorizontalScrollIndicator={ false }
                             style={ styles.categorias }
                         >
-                            {/* Opción estática para mostrar "Todos" */ }
                             <Categoria
                                 nombre="Todos"
                                 icono="apps-outline"
                                 onPress={ seleccionarTodos }
                             />
-
-                            {/* Categorías dinámicas desde Firestore */ }
                             { categorias.map( ( categoria ) => (
                                 <Categoria
                                     key={ categoria.id }
@@ -135,14 +174,23 @@ const Catalogo = () => {
                         </ScrollView>
 
                         <View style={ styles.linea } />
-
-                        <Text style={ styles.titulo }>
-                            News
-                        </Text>
+                        <Text style={ styles.titulo }>News</Text>
                     </View>
                 }
                 contentContainerStyle={ styles.listaProductos }
             />
+
+            {/* Modal CRUD */}
+            <Modal visible={ modalVisible } animationType="slide" presentationStyle="pageSheet">
+                <FormularioProducto
+                    productoSeleccionado={ productoAEditar }
+                    alCancelar={ () => setModalVisible( false ) }
+                    alGuardar={ () => {
+                        setModalVisible( false );
+                        obtenerProductos();
+                    } }
+                />
+            </Modal>
         </View>
     );
 };
@@ -154,21 +202,36 @@ const styles = StyleSheet.create( {
         paddingHorizontal: 10,
         marginTop: 40,
     },
+    headerAcciones: {
+        flexDirection: "row",
+        alignItems: "center",
+        justifyContent: "space-between",
+        marginTop: 12,
+        marginBottom: 15,
+    },
     buscador: {
-        height: 55,
+        flex: 1,
+        height: 50,
         backgroundColor: "#F5F4FC",
         borderRadius: 8,
         flexDirection: "row",
         alignItems: "center",
         paddingHorizontal: 10,
-        marginTop: 12,
-        marginBottom: 15,
+        marginRight: 10,
     },
     input: {
         flex: 1,
         fontSize: 12,
         marginLeft: 8,
         color: "#000",
+    },
+    botonAgregar: {
+        width: 50,
+        height: 50,
+        backgroundColor: "#7C7CFF",
+        borderRadius: 8,
+        justifyContent: "center",
+        alignItems: "center",
     },
     categorias: {
         marginBottom: 10,
@@ -192,6 +255,19 @@ const styles = StyleSheet.create( {
         justifyContent: "space-between",
         marginBottom: 10,
     },
+    tarjetaContenedor: {
+        width: "48%",
+        position: "relative",
+    },
+    accionesCard: {
+        flexDirection: "row",
+        justifyContent: "space-around",
+        backgroundColor: "#F5F4FC",
+        paddingVertical: 4,
+        borderRadius: 4,
+        marginTop: -8,
+        marginBottom: 8,
+    }
 } );
 
 export default Catalogo;
